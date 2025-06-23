@@ -223,6 +223,53 @@ class MT4MCPServer {
               properties: {},
             },
           },
+          {
+            name: "sync_ea",
+            description: "Upload EA file to MetaTrader 4 for compilation",
+            inputSchema: {
+              type: "object",
+              properties: {
+                ea_name: {
+                  type: "string",
+                  description: "Name of the EA file (without .mq4 extension)",
+                },
+                ea_content: {
+                  type: "string",
+                  description: "MQL4 source code content",
+                },
+              },
+              required: ["ea_name", "ea_content"],
+            },
+          },
+          {
+            name: "compile_ea",
+            description: "Compile an EA on MetaTrader 4 and get compilation results",
+            inputSchema: {
+              type: "object",
+              properties: {
+                ea_name: {
+                  type: "string",
+                  description: "Name of the EA to compile (without .mq4 extension)",
+                },
+              },
+              required: ["ea_name"],
+            },
+          },
+          {
+            name: "list_local_eas",
+            description: "List EAs in the local development folders",
+            inputSchema: {
+              type: "object",
+              properties: {
+                folder: {
+                  type: "string",
+                  enum: ["active", "templates", "compiled"],
+                  description: "Which folder to list",
+                  default: "active",
+                },
+              },
+            },
+          },
         ],
       };
     });
@@ -252,6 +299,12 @@ class MT4MCPServer {
             return await this.listExperts();
           case "get_backtest_status":
             return await this.getBacktestStatus();
+          case "sync_ea":
+            return await this.syncEA(args as { ea_name: string; ea_content: string });
+          case "compile_ea":
+            return await this.compileEA(args as { ea_name: string });
+          case "list_local_eas":
+            return await this.listLocalEAs(args as { folder?: string });
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -277,8 +330,8 @@ class MT4MCPServer {
       }
       
       const response = data 
-        ? await axios.post(url, data, { timeout: 10000 })
-        : await axios.get(url, { timeout: 10000 });
+        ? await axios.post(url, data, { timeout: 30000 })
+        : await axios.get(url, { timeout: 30000 });
       
       console.error(`Response status: ${response.status}`);
       console.error(`Response data: ${JSON.stringify(response.data)}`);
@@ -501,16 +554,34 @@ class MT4MCPServer {
   }
 
   private async listExperts() {
-    const experts = await this.makeApiCall("/api/experts");
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Available Expert Advisors:\n${JSON.stringify(experts, null, 2)}`,
-        },
-      ],
-    };
+    try {
+      const experts = await this.makeApiCall("/api/experts");
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Available Expert Advisors:\n${JSON.stringify(experts, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      // Fallback to common EA names if file not found
+      const commonExperts = [
+        "MACD Sample",
+        "Moving Average",
+        "RSI Sample",
+        "EA_FileReporting_Template"
+      ];
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Expert Advisors (fallback list - experts_list.txt not found on MT4 side):\n${JSON.stringify(commonExperts, null, 2)}\n\nNote: The MT4 bridge needs to create experts_list.txt file for accurate listing.`,
+          },
+        ],
+      };
+    }
   }
 
   private async getBacktestStatus() {
@@ -567,6 +638,129 @@ class MT4MCPServer {
           {
             type: "text",
             text: `Error reading backtest status file: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  }
+
+  private async syncEA(args: { ea_name: string; ea_content: string }) {
+    try {
+      // Save EA locally first
+      const eaPath = path.join(process.cwd(), "ea-strategies", "active", `${args.ea_name}.mq4`);
+      fs.writeFileSync(eaPath, args.ea_content, 'utf8');
+      
+      // Send EA to MT4 via API
+      const syncData = {
+        ea_name: args.ea_name,
+        ea_content: args.ea_content
+      };
+      
+      const result = await this.makeApiCall("/api/ea/upload", syncData);
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: `EA Sync Result:\n${JSON.stringify(result, null, 2)}\n\nLocal copy saved to: ${eaPath}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `EA Sync Failed: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  }
+
+  private async compileEA(args: { ea_name: string }) {
+    try {
+      const compileData = { ea_name: args.ea_name };
+      const result = await this.makeApiCall("/api/ea/compile", compileData);
+      
+      // Save compilation log locally
+      const logPath = path.join(process.cwd(), "ea-strategies", "logs", `${args.ea_name}.log`);
+      const logContent = `Compilation at ${new Date().toISOString()}\n${JSON.stringify(result, null, 2)}`;
+      fs.writeFileSync(logPath, logContent, 'utf8');
+      
+      // If compilation successful, mark as compiled
+      if (result.success) {
+        const activePath = path.join(process.cwd(), "ea-strategies", "active", `${args.ea_name}.mq4`);
+        const compiledPath = path.join(process.cwd(), "ea-strategies", "compiled", `${args.ea_name}.mq4`);
+        
+        if (fs.existsSync(activePath)) {
+          fs.copyFileSync(activePath, compiledPath);
+        }
+      }
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: `EA Compilation Result:\n${JSON.stringify(result, null, 2)}\n\nLog saved to: ${logPath}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `EA Compilation Failed: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  }
+
+  private async listLocalEAs(args: { folder?: string }) {
+    try {
+      const folder = args.folder || "active";
+      const eaDir = path.join(process.cwd(), "ea-strategies", folder);
+      
+      if (!fs.existsSync(eaDir)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Folder ${folder} does not exist in ea-strategies/`,
+            },
+          ],
+        };
+      }
+      
+      const files = fs.readdirSync(eaDir)
+        .filter(file => file.endsWith('.mq4'))
+        .map(file => {
+          const filePath = path.join(eaDir, file);
+          const stats = fs.statSync(filePath);
+          return {
+            name: file,
+            size: stats.size,
+            modified: stats.mtime.toISOString(),
+            path: filePath
+          };
+        });
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: `EAs in ${folder} folder:\n${JSON.stringify(files, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error listing EAs: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };

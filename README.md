@@ -13,6 +13,8 @@ A Model Context Protocol (MCP) server that provides cross-platform integration w
 - **Trading History**: Access historical trading data
 - **Backtesting**: Run backtests on Expert Advisors with detailed configuration
 - **Expert Advisor Management**: List and manage available EAs
+- **File-Based Fallback**: Robust status and results tracking when API endpoints fail
+- **EA Development**: Remote EA creation, editing, sync, and compilation with error reporting
 - **Cross-Platform**: Linux MCP server connects to Windows MT4 via HTTP
 
 ## Architecture
@@ -46,10 +48,19 @@ npm start
 
 ### 3. Install MT4 Expert Advisor (Windows Machine)
 
-1. Copy `MT4_Files/MCPBridge.mq4` to your MT4 `MQL4/Experts/` folder
+**Option A: Unified EA (Recommended)**
+1. Copy `MT4_Files/MCPBridge_Unified.mq4` to your MT4 `MQL4/Experts/` folder
 2. Compile the Expert Advisor in MetaEditor
 3. Attach the Expert Advisor to any chart in MT4
-4. Ensure "Allow DLL imports" is enabled in MT4 settings
+4. Configure EA inputs:
+   - `EnableFileReporting`: true (for enhanced reporting)
+   - `EnableBacktestTracking`: true (for backtest monitoring)
+5. Ensure "Allow DLL imports" is enabled in MT4 settings
+
+**Option B: Legacy EA**
+1. Copy `MT4_Files/MCPBridge.mq4` to your MT4 `MQL4/Experts/` folder
+2. Follow same compilation and attachment process
+3. Limited to basic MCP functionality without enhanced reporting
 
 ### 4. Configure Claude Code (Linux Machine)
 
@@ -126,14 +137,53 @@ Show me all available Expert Advisors for backtesting
 Get the results from the last backtest with detailed information
 ```
 
+### Monitor Backtest Status
+```
+Check the current status of a running backtest
+```
+
+## EA Development Workflow
+
+### List Local EAs
+```
+Show me all EAs in the active development folder
+```
+
+### Sync EA to MT4
+```
+Upload MyStrategy EA to MetaTrader for compilation
+```
+
+### Compile EA
+```
+Compile MyStrategy EA and show any errors or warnings
+```
+
+### Create New EA from Template
+```bash
+cd ea-strategies
+./develop.sh new MyNewStrategy SimpleMA_Template.mq4
+./develop.sh edit MyNewStrategy
+```
+
 ## File Structure
 
 ```
 ├── src/
-│   └── index.ts          # MCP server implementation
+│   └── index.ts                    # MCP server implementation
+├── ea-strategies/                  # EA development workspace
+│   ├── templates/                  # EA templates and examples
+│   ├── active/                     # EAs under development
+│   ├── compiled/                   # Successfully compiled EAs
+│   ├── logs/                       # Compilation logs and error reports
+│   ├── develop.sh                  # Development helper script
+│   └── README.md                   # EA development guide
 ├── MT4_Files/
-│   └── MCPBridge.mq4     # MT4 Expert Advisor
-├── dist/                 # Compiled JavaScript
+│   ├── MCPBridge_Unified.mq4      # Unified MCP Bridge with enhanced reporting
+│   └── MCPBridge.mq4              # Legacy MCP Bridge (basic functionality)
+├── dist/                          # Compiled JavaScript
+├── MCPBridge_Unified_Guide.md     # Complete setup guide for unified EA
+├── bridge-endpoints-needed.md     # Required HTTP bridge endpoints
 ├── package.json
 └── tsconfig.json
 ```
@@ -147,6 +197,18 @@ The Expert Advisor creates these files in MT4's `MQL4/Files/` folder:
 - `positions.txt` - Open positions
 - `order_commands.txt` - Incoming order commands
 - `close_commands.txt` - Position close commands
+
+### File-Based Reporting (New Feature)
+
+For enhanced backtest monitoring, EAs can write to the reports directory:
+
+- `mt4_reports/backtest_status.json` - Real-time backtest status and progress
+- `mt4_reports/backtest_results.json` - Detailed backtest results and statistics
+- `mt4_reports/backtest_report.html` - Optional HTML report for detailed analysis
+
+The MCP server automatically falls back to reading these files when API endpoints are unavailable.
+
+**Configuration**: Set `MT4_REPORTS_PATH` environment variable to customize the reports directory (default: `/tmp/mt4_reports`)
 
 ## Security Notes
 
@@ -168,3 +230,42 @@ The Expert Advisor creates these files in MT4's `MQL4/Files/` folder:
 2. **No market data**: Ensure the symbols are available in your MT4 Market Watch
 3. **Orders not executing**: Verify that automated trading is enabled in MT4
 4. **File access errors**: Check MT4 data path configuration and file permissions
+5. **Backtest status/results not available**: 
+   - Check if API endpoints are responding (server will auto-fallback to files)
+   - Ensure EA is writing to `mt4_reports/` directory using the provided template
+   - Verify `MT4_REPORTS_PATH` environment variable is set correctly
+6. **File-based fallback not working**: Ensure reports directory exists and has proper permissions
+
+## Environment Variables
+
+- `MT4_HOST`: IP address of Windows machine running MT4 (default: 192.168.50.161)
+- `MT4_PORT`: Port number for HTTP bridge (default: 8080)  
+- `MT4_REPORTS_PATH`: Directory path for EA report files (default: /tmp/mt4_reports)
+
+## EA Integration Guide
+
+To enable file-based reporting in your Expert Advisors:
+
+1. Copy the `EA_FileReporting_Template.mq4` code into your EA
+2. Call `WriteBacktestStatus()` periodically during backtesting
+3. Call `WriteBacktestResults()` when backtest completes
+4. Ensure MT4 has write permissions to the reports directory
+
+The MCP server will automatically detect and use these files when API endpoints fail.
+
+## Unified EA Setup
+
+**MCPBridge_Unified.mq4** combines both MCP communication and enhanced reporting:
+
+### Key Features
+- **All MCP Bridge Functions**: Account info, market data, order management
+- **Enhanced Backtest Reporting**: Real-time status and comprehensive results
+- **Configurable Options**: Enable/disable reporting features as needed
+- **Live Trading Support**: Works for both backtesting and live trading
+
+### Quick Setup
+1. Use `MCPBridge_Unified.mq4` instead of separate EAs
+2. Enable both `EnableFileReporting` and `EnableBacktestTracking` in EA inputs
+3. Full MCP functionality with automatic file-based fallback
+
+See `MCPBridge_Unified_Guide.md` for detailed setup instructions.
