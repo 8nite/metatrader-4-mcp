@@ -8,11 +8,14 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import axios from "axios";
 import { z } from "zod";
+import * as fs from "fs";
+import * as path from "path";
 
 class MT4MCPServer {
   private server: Server;
   private mt4Host: string;
   private mt4Port: number;
+  private reportsPath: string;
 
   constructor() {
     this.server = new Server(
@@ -30,6 +33,9 @@ class MT4MCPServer {
     // MT4 Windows machine connection - configurable via environment variables
     this.mt4Host = process.env.MT4_HOST || "192.168.50.161";
     this.mt4Port = parseInt(process.env.MT4_PORT || "8080");
+    
+    // Path for EA reports and status files (configurable via environment)
+    this.reportsPath = process.env.MT4_REPORTS_PATH || "/tmp/mt4_reports";
     
     this.setupToolHandlers();
   }
@@ -209,6 +215,14 @@ class MT4MCPServer {
               properties: {},
             },
           },
+          {
+            name: "get_backtest_status",
+            description: "Get the current status of a running backtest",
+            inputSchema: {
+              type: "object",
+              properties: {},
+            },
+          },
         ],
       };
     });
@@ -236,6 +250,8 @@ class MT4MCPServer {
             return await this.getBacktestResults(args as { detailed?: boolean });
           case "list_experts":
             return await this.listExperts();
+          case "get_backtest_status":
+            return await this.getBacktestStatus();
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -255,13 +271,23 @@ class MT4MCPServer {
   private async makeApiCall(endpoint: string, data?: any): Promise<any> {
     try {
       const url = `http://${this.mt4Host}:${this.mt4Port}${endpoint}`;
+      console.error(`Making API call to: ${url}`);
+      if (data) {
+        console.error(`Request data: ${JSON.stringify(data)}`);
+      }
+      
       const response = data 
         ? await axios.post(url, data, { timeout: 10000 })
         : await axios.get(url, { timeout: 10000 });
+      
+      console.error(`Response status: ${response.status}`);
+      console.error(`Response data: ${JSON.stringify(response.data)}`);
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        throw new Error(`MT4 API Error: ${error.message} (${error.code})`);
+        const statusCode = error.response?.status || 'unknown';
+        const statusText = error.response?.statusText || 'unknown';
+        throw new Error(`MT4 API Error: Request failed with status code ${statusCode} (${statusText})`);
       }
       throw new Error(`Failed to connect to MT4 at ${this.mt4Host}:${this.mt4Port}: ${error}`);
     }
@@ -401,18 +427,77 @@ class MT4MCPServer {
   }
 
   private async getBacktestResults(args: { detailed?: boolean }) {
-    const detailed = args.detailed || false;
-    const endpoint = detailed ? "/api/backtest/results?detailed=true" : "/api/backtest/results";
-    const results = await this.makeApiCall(endpoint);
+    try {
+      // First try the API endpoint
+      const detailed = args.detailed || false;
+      const endpoint = detailed ? "/api/backtest/results?detailed=true" : "/api/backtest/results";
+      const results = await this.makeApiCall(endpoint);
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Backtest Results:\n${JSON.stringify(results, null, 2)}`,
-        },
-      ],
-    };
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Backtest Results:\n${JSON.stringify(results, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      // Fallback to file-based results
+      return await this.getBacktestResultsFromFile(args.detailed || false);
+    }
+  }
+
+  private async getBacktestResultsFromFile(detailed: boolean) {
+    try {
+      const resultsFile = path.join(this.reportsPath, "backtest_results.json");
+      const htmlReportFile = path.join(this.reportsPath, "backtest_report.html");
+      
+      if (!fs.existsSync(resultsFile)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `No backtest results file found at ${resultsFile}. EA should write results to this file.`,
+            },
+          ],
+        };
+      }
+
+      const resultsData = fs.readFileSync(resultsFile, 'utf8');
+      const results = JSON.parse(resultsData);
+      
+      // Add file timestamp for freshness indication
+      const stats = fs.statSync(resultsFile);
+      results.file_updated = stats.mtime.toISOString();
+
+      // If detailed results requested and HTML report exists, include a reference
+      if (detailed && fs.existsSync(htmlReportFile)) {
+        const htmlStats = fs.statSync(htmlReportFile);
+        results.html_report = {
+          path: htmlReportFile,
+          updated: htmlStats.mtime.toISOString(),
+          size: htmlStats.size
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Backtest Results (from file):\n${JSON.stringify(results, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error reading backtest results file: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
   }
 
   private async listExperts() {
@@ -426,6 +511,66 @@ class MT4MCPServer {
         },
       ],
     };
+  }
+
+  private async getBacktestStatus() {
+    try {
+      // First try the API endpoint
+      const status = await this.makeApiCall("/api/backtest/status");
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Backtest Status:\n${JSON.stringify(status, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      // Fallback to file-based status
+      return await this.getBacktestStatusFromFile();
+    }
+  }
+
+  private async getBacktestStatusFromFile() {
+    try {
+      const statusFile = path.join(this.reportsPath, "backtest_status.json");
+      
+      if (!fs.existsSync(statusFile)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `No backtest status file found at ${statusFile}. EA should write status to this file.`,
+            },
+          ],
+        };
+      }
+
+      const statusData = fs.readFileSync(statusFile, 'utf8');
+      const status = JSON.parse(statusData);
+      
+      // Add file timestamp for freshness indication
+      const stats = fs.statSync(statusFile);
+      status.file_updated = stats.mtime.toISOString();
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Backtest Status (from file):\n${JSON.stringify(status, null, 2)}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error reading backtest status file: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
   }
 
   async run() {
