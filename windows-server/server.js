@@ -228,6 +228,69 @@ app.get('/api/history', async (req, res) => {
   }
 });
 
+// Run backtest
+app.post('/api/backtest', async (req, res) => {
+  try {
+    const backtestCommand = {
+      action: 'RUN_BACKTEST',
+      ...req.body,
+      timestamp: Date.now(),
+    };
+    
+    await writeMT4File('backtest_commands.txt', JSON.stringify(backtestCommand));
+    
+    res.json({ 
+      success: true, 
+      message: 'Backtest command sent to MT4',
+      expert: req.body.expert,
+      symbol: req.body.symbol,
+      timeframe: req.body.timeframe
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get backtest results
+app.get('/api/backtest/results', async (req, res) => {
+  try {
+    const detailed = req.query.detailed === 'true';
+    const filename = detailed ? 'backtest_results_detailed.txt' : 'backtest_results.txt';
+    
+    const resultsData = await readMT4File(filename);
+    
+    try {
+      const results = JSON.parse(resultsData);
+      res.json(results);
+    } catch (parseError) {
+      // If not JSON, return as text report
+      res.json({ report: resultsData });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// List available Expert Advisors
+app.get('/api/experts', async (req, res) => {
+  try {
+    const expertsData = await readMT4File('experts_list.txt');
+    const lines = expertsData.split('\\n').filter(line => line.trim());
+    const experts = lines.map(line => {
+      const parts = line.split('|');
+      return {
+        name: parts[0]?.trim(),
+        description: parts[1]?.trim() || '',
+        modified: parts[2]?.trim() || ''
+      };
+    });
+    
+    res.json({ experts });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ 

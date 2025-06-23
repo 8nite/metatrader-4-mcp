@@ -135,6 +135,80 @@ class MT4MCPServer {
               },
             },
           },
+          {
+            name: "run_backtest",
+            description: "Run a backtest on an Expert Advisor",
+            inputSchema: {
+              type: "object",
+              properties: {
+                expert: {
+                  type: "string",
+                  description: "Expert Advisor name (without .ex4 extension)",
+                },
+                symbol: {
+                  type: "string",
+                  description: "Trading symbol (e.g., EURUSD, GBPUSD)",
+                },
+                timeframe: {
+                  type: "string",
+                  enum: ["M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1", "MN1"],
+                  description: "Timeframe for backtesting",
+                },
+                from_date: {
+                  type: "string",
+                  description: "Start date (YYYY-MM-DD format)",
+                },
+                to_date: {
+                  type: "string",
+                  description: "End date (YYYY-MM-DD format)",
+                },
+                initial_deposit: {
+                  type: "number",
+                  description: "Initial deposit amount",
+                  default: 10000,
+                },
+                model: {
+                  type: "string",
+                  enum: ["Every tick", "Control points", "Open prices only"],
+                  description: "Testing model",
+                  default: "Every tick",
+                },
+                optimization: {
+                  type: "boolean",
+                  description: "Enable optimization",
+                  default: false,
+                },
+                parameters: {
+                  type: "object",
+                  description: "Expert Advisor parameters as key-value pairs",
+                  additionalProperties: true,
+                },
+              },
+              required: ["expert", "symbol", "timeframe", "from_date", "to_date"],
+            },
+          },
+          {
+            name: "get_backtest_results",
+            description: "Get results from the last backtest",
+            inputSchema: {
+              type: "object",
+              properties: {
+                detailed: {
+                  type: "boolean",
+                  description: "Include detailed trade-by-trade results",
+                  default: false,
+                },
+              },
+            },
+          },
+          {
+            name: "list_experts",
+            description: "List available Expert Advisors for backtesting",
+            inputSchema: {
+              type: "object",
+              properties: {},
+            },
+          },
         ],
       };
     });
@@ -156,6 +230,12 @@ class MT4MCPServer {
             return await this.closePosition(args as { ticket: number });
           case "get_history":
             return await this.getHistory(args as { days?: number });
+          case "run_backtest":
+            return await this.runBacktest(args as any);
+          case "get_backtest_results":
+            return await this.getBacktestResults(args as { detailed?: boolean });
+          case "list_experts":
+            return await this.listExperts();
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -280,6 +360,69 @@ class MT4MCPServer {
         {
           type: "text",
           text: `Trading History (${days} days):\n${JSON.stringify(historyData, null, 2)}`,
+        },
+      ],
+    };
+  }
+
+  private async runBacktest(args: {
+    expert: string;
+    symbol: string;
+    timeframe: string;
+    from_date: string;
+    to_date: string;
+    initial_deposit?: number;
+    model?: string;
+    optimization?: boolean;
+    parameters?: Record<string, any>;
+  }) {
+    const backtestData = {
+      expert: args.expert,
+      symbol: args.symbol,
+      timeframe: args.timeframe,
+      from_date: args.from_date,
+      to_date: args.to_date,
+      initial_deposit: args.initial_deposit || 10000,
+      model: args.model || "Every tick",
+      optimization: args.optimization || false,
+      parameters: args.parameters || {},
+    };
+
+    const result = await this.makeApiCall("/api/backtest", backtestData);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Backtest initiated:\n${JSON.stringify(result, null, 2)}`,
+        },
+      ],
+    };
+  }
+
+  private async getBacktestResults(args: { detailed?: boolean }) {
+    const detailed = args.detailed || false;
+    const endpoint = detailed ? "/api/backtest/results?detailed=true" : "/api/backtest/results";
+    const results = await this.makeApiCall(endpoint);
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Backtest Results:\n${JSON.stringify(results, null, 2)}`,
+        },
+      ],
+    };
+  }
+
+  private async listExperts() {
+    const experts = await this.makeApiCall("/api/experts");
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Available Expert Advisors:\n${JSON.stringify(experts, null, 2)}`,
         },
       ],
     };

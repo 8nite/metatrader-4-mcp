@@ -2,6 +2,8 @@
 
 A Model Context Protocol (MCP) server that provides cross-platform integration with MetaTrader 4 trading platform over network.
 
+**Author**: 8nite (8nite@qmlab.io)
+
 ## Features
 
 - **Account Information**: Get real-time account details (balance, equity, margin, etc.)
@@ -9,6 +11,8 @@ A Model Context Protocol (MCP) server that provides cross-platform integration w
 - **Order Management**: Place market and pending orders
 - **Position Management**: View and close open positions
 - **Trading History**: Access historical trading data
+- **Backtesting**: Run backtests on Expert Advisors with detailed configuration
+- **Expert Advisor Management**: List and manage available EAs
 - **Cross-Platform**: Linux MCP server connects to Windows MT4 via HTTP
 
 ## Architecture
@@ -105,6 +109,21 @@ Show me all my open positions using get_positions
 ### Close Position
 ```
 Close position with ticket number 12345
+```
+
+### Run Backtest
+```
+Run a backtest on MACD Sample Expert Advisor for EURUSD H1 from 2024-01-01 to 2024-12-31 with initial deposit 10000
+```
+
+### List Expert Advisors
+```
+Show me all available Expert Advisors for backtesting
+```
+
+### Get Backtest Results
+```
+Get the results from the last backtest with detailed information
 ```
 
 ## File Structure

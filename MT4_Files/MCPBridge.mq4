@@ -27,6 +27,7 @@ int OnInit()
    // Create initial files
    WriteAccountInfo();
    WritePositionsInfo();
+   WriteExpertsList();
    
    return(INIT_SUCCEEDED);
 }
@@ -61,6 +62,7 @@ void OnTick()
       // Process pending commands
       ProcessOrderCommands();
       ProcessCloseCommands();
+      ProcessBacktestCommands();
       
       lastUpdate = TimeCurrent();
    }
@@ -83,7 +85,8 @@ void WriteAccountInfo()
       FileWrite(fileHandle, "Equity=" + DoubleToString(AccountEquity(), 2));
       FileWrite(fileHandle, "Margin=" + DoubleToString(AccountMargin(), 2));
       FileWrite(fileHandle, "FreeMargin=" + DoubleToString(AccountFreeMargin(), 2));
-      FileWrite(fileHandle, "MarginLevel=" + DoubleToString(AccountMarginLevel(), 2));
+      double marginLevel = AccountEquity() > 0 && AccountMargin() > 0 ? AccountEquity() / AccountMargin() * 100 : 0;
+      FileWrite(fileHandle, "MarginLevel=" + DoubleToString(marginLevel, 2));
       FileWrite(fileHandle, "Leverage=" + IntegerToString(AccountLeverage()));
       
       FileClose(fileHandle);
@@ -420,4 +423,101 @@ string ExtractJsonValue(string json, string key)
    }
    
    return StringSubstr(json, startPos, endPos - startPos);
+}
+
+//+------------------------------------------------------------------+
+//| Write list of available Expert Advisors                         |
+//+------------------------------------------------------------------+
+void WriteExpertsList()
+{
+   int fileHandle = FileOpen("experts_list.txt", FILE_WRITE | FILE_TXT);
+   if (fileHandle != INVALID_HANDLE)
+   {
+      // Add common Expert Advisors (user should update this list)
+      FileWrite(fileHandle, "MCPBridge|MCP Bridge Expert Advisor|Current");
+      FileWrite(fileHandle, "MACD Sample|Sample MACD Expert Advisor|Built-in");
+      FileWrite(fileHandle, "Moving Average|Sample Moving Average EA|Built-in");
+      FileWrite(fileHandle, "RSI|Relative Strength Index EA|Built-in");
+      
+      // Note: In a real implementation, this would scan the Experts folder
+      // For now, users need to manually add their EAs to this list
+      
+      FileClose(fileHandle);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Process backtest commands from MCP server                       |
+//+------------------------------------------------------------------+
+void ProcessBacktestCommands()
+{
+   if (FileIsExist("backtest_commands.txt"))
+   {
+      int fileHandle = FileOpen("backtest_commands.txt", FILE_READ | FILE_TXT);
+      if (fileHandle != INVALID_HANDLE)
+      {
+         string jsonCommand = "";
+         while (!FileIsEnding(fileHandle))
+         {
+            jsonCommand += FileReadString(fileHandle);
+         }
+         FileClose(fileHandle);
+         
+         // Delete the command file after reading
+         FileDelete("backtest_commands.txt");
+         
+         // Execute the backtest command
+         ExecuteBacktestCommand(jsonCommand);
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Execute backtest command                                         |
+//+------------------------------------------------------------------+
+void ExecuteBacktestCommand(string jsonCommand)
+{
+   // Extract backtest parameters
+   string expert = ExtractJsonValue(jsonCommand, "expert");
+   string symbol = ExtractJsonValue(jsonCommand, "symbol");
+   string timeframe = ExtractJsonValue(jsonCommand, "timeframe");
+   string fromDate = ExtractJsonValue(jsonCommand, "from_date");
+   string toDate = ExtractJsonValue(jsonCommand, "to_date");
+   double initialDeposit = StringToDouble(ExtractJsonValue(jsonCommand, "initial_deposit"));
+   string model = ExtractJsonValue(jsonCommand, "model");
+   bool optimization = ExtractJsonValue(jsonCommand, "optimization") == "true";
+   
+   // Write backtest results file
+   int resultHandle = FileOpen("backtest_results.txt", FILE_WRITE | FILE_TXT);
+   
+   if (resultHandle != INVALID_HANDLE)
+   {
+      // Note: MT4 doesn't have direct API for programmatic backtesting
+      // This is a simulation of what the results would look like
+      
+      FileWrite(resultHandle, "{");
+      FileWrite(resultHandle, "\"status\": \"simulated\",");
+      FileWrite(resultHandle, "\"message\": \"Backtest simulation - MT4 requires manual backtesting\",");
+      FileWrite(resultHandle, "\"expert\": \"" + expert + "\",");
+      FileWrite(resultHandle, "\"symbol\": \"" + symbol + "\",");
+      FileWrite(resultHandle, "\"timeframe\": \"" + timeframe + "\",");
+      FileWrite(resultHandle, "\"period\": \"" + fromDate + " to " + toDate + "\",");
+      FileWrite(resultHandle, "\"initial_deposit\": " + DoubleToString(initialDeposit, 2) + ",");
+      FileWrite(resultHandle, "\"model\": \"" + model + "\",");
+      FileWrite(resultHandle, "\"instructions\": [");
+      FileWrite(resultHandle, "\"1. Open MT4 Strategy Tester (Ctrl+R)\",");
+      FileWrite(resultHandle, "\"2. Select Expert: " + expert + "\",");
+      FileWrite(resultHandle, "\"3. Select Symbol: " + symbol + "\",");
+      FileWrite(resultHandle, "\"4. Select Timeframe: " + timeframe + "\",");
+      FileWrite(resultHandle, "\"5. Set Period: " + fromDate + " - " + toDate + "\",");
+      FileWrite(resultHandle, "\"6. Set Initial Deposit: " + DoubleToString(initialDeposit, 2) + "\",");
+      FileWrite(resultHandle, "\"7. Select Model: " + model + "\",");
+      FileWrite(resultHandle, "\"8. Click Start to run backtest\"");
+      FileWrite(resultHandle, "]");
+      FileWrite(resultHandle, "}");
+      
+      FileClose(resultHandle);
+   }
+   
+   Print("Backtest command processed for: ", expert, " on ", symbol);
 }
