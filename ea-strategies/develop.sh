@@ -81,6 +81,79 @@ case "$1" in
         fi
         ;;
     
+    "sync")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 sync [ea_name]"
+            exit 1
+        fi
+        
+        EA_NAME="$2"
+        EA_FILE="$ACTIVE_DIR/${EA_NAME}.mq4"
+        
+        if [ ! -f "$EA_FILE" ]; then
+            echo "EA $EA_NAME.mq4 not found in active folder!"
+            exit 1
+        fi
+        
+        echo "Syncing $EA_NAME to MT4..."
+        echo "Reading EA content..."
+        
+        # Note: This is a placeholder for MCP sync functionality
+        # The actual sync would be done through Claude Code MCP tools
+        echo "File: $EA_FILE"
+        echo "Size: $(wc -c < "$EA_FILE") bytes"
+        echo "Lines: $(wc -l < "$EA_FILE") lines"
+        echo
+        echo "Ready for MCP sync! Use Claude Code to run:"
+        echo "  sync_ea with ea_name: $EA_NAME"
+        echo "  and ea_content from: $EA_FILE"
+        ;;
+    
+    "compile")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 compile [ea_name]"
+            exit 1
+        fi
+        
+        EA_NAME="$2"
+        echo "Requesting compilation of $EA_NAME on MT4..."
+        echo
+        echo "Use Claude Code to run:"
+        echo "  compile_ea with ea_name: $EA_NAME"
+        echo
+        echo "Check compilation results with:"
+        echo "  $0 log $EA_NAME"
+        ;;
+    
+    "deploy")
+        if [ -z "$2" ]; then
+            echo "Usage: $0 deploy [ea_name]"
+            exit 1
+        fi
+        
+        EA_NAME="$2"
+        EA_FILE="$ACTIVE_DIR/${EA_NAME}.mq4"
+        
+        if [ ! -f "$EA_FILE" ]; then
+            echo "EA $EA_NAME.mq4 not found in active folder!"
+            exit 1
+        fi
+        
+        echo "=== Full Deployment Workflow for $EA_NAME ==="
+        echo
+        echo "1. Syncing EA to MT4..."
+        $0 sync "$EA_NAME"
+        echo
+        echo "2. Next steps in Claude Code:"
+        echo "   a) Run: sync_ea with ea_name: $EA_NAME"
+        echo "   b) Run: compile_ea with ea_name: $EA_NAME"
+        echo "   c) Check results: $0 log $EA_NAME"
+        echo
+        echo "3. If compilation successful, EA will be ready for:"
+        echo "   - Backtesting in Strategy Tester"
+        echo "   - Live trading deployment"
+        ;;
+    
     "clean")
         echo "Cleaning old logs and temporary files..."
         find "$LOGS_DIR" -name "*.log" -mtime +7 -delete 2>/dev/null
@@ -95,13 +168,17 @@ case "$1" in
         echo "  list          - Show all EAs and their status"
         echo "  new [name] [template] - Create new EA from template"
         echo "  edit [name]   - Edit EA in active folder"
+        echo "  sync [name]   - Prepare EA for MCP sync to MT4"
+        echo "  compile [name] - Request compilation via MCP"
+        echo "  deploy [name] - Full deployment workflow"
         echo "  log [name]    - Show compilation log (or recent logs)"
         echo "  clean         - Clean old log files"
         echo
         echo "Workflow:"
         echo "  1. $0 new MyStrategy SimpleMA_Template.mq4"
         echo "  2. $0 edit MyStrategy"
-        echo "  3. Use MCP tools: sync_ea, compile_ea"
-        echo "  4. $0 log MyStrategy"
+        echo "  3. $0 deploy MyStrategy"
+        echo "  4. Use Claude Code MCP tools as prompted"
+        echo "  5. $0 log MyStrategy"
         ;;
 esac
