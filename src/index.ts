@@ -270,6 +270,24 @@ class MT4MCPServer {
               },
             },
           },
+          {
+            name: "sync_ea_from_file",
+            description: "Sync an existing EA file to MetaTrader 4",
+            inputSchema: {
+              type: "object",
+              properties: {
+                file_path: {
+                  type: "string",
+                  description: "Path to the EA file to sync",
+                },
+                ea_name: {
+                  type: "string",
+                  description: "Name for the EA (optional, will extract from filename if not provided)",
+                },
+              },
+              required: ["file_path"],
+            },
+          },
         ],
       };
     });
@@ -305,6 +323,8 @@ class MT4MCPServer {
             return await this.compileEA(args as { ea_name: string });
           case "list_local_eas":
             return await this.listLocalEAs(args as { folder?: string });
+          case "sync_ea_from_file":
+            return await this.syncEAFromFile(args as { file_path: string; ea_name?: string });
           default:
             throw new Error(`Unknown tool: ${name}`);
         }
@@ -646,32 +666,67 @@ class MT4MCPServer {
 
   private async syncEA(args: { ea_name: string; ea_content: string }) {
     try {
+      // Ensure directories exist
+      const activeDir = path.join(process.cwd(), "ea-strategies", "active");
+      const logsDir = path.join(process.cwd(), "ea-strategies", "logs");
+      
+      if (!fs.existsSync(activeDir)) {
+        fs.mkdirSync(activeDir, { recursive: true });
+      }
+      if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+      }
+      
       // Save EA locally first
-      const eaPath = path.join(process.cwd(), "ea-strategies", "active", `${args.ea_name}.mq4`);
+      const eaPath = path.join(activeDir, `${args.ea_name}.mq4`);
       fs.writeFileSync(eaPath, args.ea_content, 'utf8');
       
-      // Send EA to MT4 via API
-      const syncData = {
-        ea_name: args.ea_name,
-        ea_content: args.ea_content
-      };
+      // Create sync log
+      const syncLogPath = path.join(logsDir, `${args.ea_name}_sync.log`);
+      const logEntry = `EA Sync Attempt for ${args.ea_name}.mq4\nDate: ${new Date().toISOString()}\nStatus: READY\n\nFile saved to: ${eaPath}\nFile size: ${args.ea_content.length} bytes\n\n`;
+      fs.writeFileSync(syncLogPath, logEntry, 'utf8');
       
-      const result = await this.makeApiCall("/api/ea/upload", syncData);
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: `EA Sync Result:\n${JSON.stringify(result, null, 2)}\n\nLocal copy saved to: ${eaPath}`,
-          },
-        ],
-      };
+      try {
+        // Try to send EA to MT4 via API
+        const syncData = {
+          ea_name: args.ea_name,
+          ea_content: args.ea_content
+        };
+        
+        const result = await this.makeApiCall("/api/ea/upload", syncData);
+        
+        // Log successful API sync
+        const successLog = logEntry + `API SYNC SUCCESSFUL:\n${JSON.stringify(result, null, 2)}\n`;
+        fs.writeFileSync(syncLogPath, successLog, 'utf8');
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: `✅ EA Sync Successful!\n\nAPI Result: ${JSON.stringify(result, null, 2)}\n\nLocal copy saved to: ${eaPath}\nSync log: ${syncLogPath}`,
+            },
+          ],
+        };
+      } catch (apiError) {
+        // API failed, provide manual instructions
+        const manualLog = logEntry + `HTTP Bridge Missing Endpoints:\n- POST /api/ea/upload (for EA file upload)\n- POST /api/ea/compile (for remote compilation)\n\nMANUAL DEPLOYMENT INSTRUCTIONS:\n1. Copy ${args.ea_name}.mq4 to MT4/MQL4/Experts/ folder\n2. Open MetaEditor (F4 in MT4)\n3. Compile the EA (F7)\n4. Check for compilation errors\n5. Attach to chart for testing\n\nAlternatively:\n- Use develop.sh script for local management\n- Wait for HTTP bridge endpoint implementation\n`;
+        fs.writeFileSync(syncLogPath, manualLog, 'utf8');
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: `⚠️ EA Sync Prepared (API endpoints not available)\n\nThe EA has been saved locally and is ready for deployment:\n\n📁 Local file: ${eaPath}\n📋 Sync log: ${syncLogPath}\n\n🔧 Manual deployment:\n1. Copy the EA file to your MT4/MQL4/Experts/ folder\n2. Compile in MetaEditor (F7)\n3. Attach to chart\n\n🚀 Automated deployment (when available):\n- Implement /api/ea/upload and /api/ea/compile endpoints in HTTP bridge\n- Then EA sync will work automatically\n\n📊 File size: ${args.ea_content.length} bytes\n⏰ Saved at: ${new Date().toLocaleString()}`,
+            },
+          ],
+        };
+      }
     } catch (error) {
       return {
         content: [
           {
             type: "text",
-            text: `EA Sync Failed: ${error instanceof Error ? error.message : String(error)}`,
+            text: `❌ EA Sync Failed: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };
@@ -680,38 +735,77 @@ class MT4MCPServer {
 
   private async compileEA(args: { ea_name: string }) {
     try {
-      const compileData = { ea_name: args.ea_name };
-      const result = await this.makeApiCall("/api/ea/compile", compileData);
+      // Ensure directories exist
+      const logsDir = path.join(process.cwd(), "ea-strategies", "logs");
+      const compiledDir = path.join(process.cwd(), "ea-strategies", "compiled");
       
-      // Save compilation log locally
-      const logPath = path.join(process.cwd(), "ea-strategies", "logs", `${args.ea_name}.log`);
-      const logContent = `Compilation at ${new Date().toISOString()}\n${JSON.stringify(result, null, 2)}`;
-      fs.writeFileSync(logPath, logContent, 'utf8');
-      
-      // If compilation successful, mark as compiled
-      if (result.success) {
-        const activePath = path.join(process.cwd(), "ea-strategies", "active", `${args.ea_name}.mq4`);
-        const compiledPath = path.join(process.cwd(), "ea-strategies", "compiled", `${args.ea_name}.mq4`);
-        
-        if (fs.existsSync(activePath)) {
-          fs.copyFileSync(activePath, compiledPath);
-        }
+      if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+      }
+      if (!fs.existsSync(compiledDir)) {
+        fs.mkdirSync(compiledDir, { recursive: true });
       }
       
-      return {
-        content: [
-          {
-            type: "text",
-            text: `EA Compilation Result:\n${JSON.stringify(result, null, 2)}\n\nLog saved to: ${logPath}`,
-          },
-        ],
-      };
+      // Check if EA exists locally
+      const activePath = path.join(process.cwd(), "ea-strategies", "active", `${args.ea_name}.mq4`);
+      if (!fs.existsSync(activePath)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `❌ EA ${args.ea_name}.mq4 not found in ea-strategies/active/\n\nPlease sync the EA first using sync_ea tool.`,
+            },
+          ],
+        };
+      }
+      
+      try {
+        // Try to compile via API
+        const compileData = { ea_name: args.ea_name };
+        const result = await this.makeApiCall("/api/ea/compile", compileData);
+        
+        // Save compilation log locally
+        const logPath = path.join(logsDir, `${args.ea_name}_compilation.log`);
+        const logContent = `Remote Compilation at ${new Date().toISOString()}\nEA: ${args.ea_name}.mq4\nStatus: SUCCESS\n\nResult:\n${JSON.stringify(result, null, 2)}`;
+        fs.writeFileSync(logPath, logContent, 'utf8');
+        
+        // If compilation successful, mark as compiled
+        if (result.success) {
+          const compiledPath = path.join(compiledDir, `${args.ea_name}.mq4`);
+          fs.copyFileSync(activePath, compiledPath);
+        }
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: `✅ Remote EA Compilation Successful!\n\nResult: ${JSON.stringify(result, null, 2)}\n\n📋 Log saved to: ${logPath}\n📁 EA copied to compiled folder: ${result.success ? 'Yes' : 'No'}`,
+            },
+          ],
+        };
+      } catch (apiError) {
+        // API failed, provide manual instructions and local compilation status
+        const logPath = path.join(logsDir, `${args.ea_name}_compilation.log`);
+        const fileStats = fs.statSync(activePath);
+        
+        const manualLog = `Local Compilation Status for ${args.ea_name}.mq4\nDate: ${new Date().toISOString()}\nStatus: READY FOR MANUAL COMPILATION\n\nFile Details:\n- Path: ${activePath}\n- Size: ${fileStats.size} bytes\n- Modified: ${fileStats.mtime.toISOString()}\n\nMANUAL COMPILATION INSTRUCTIONS:\n1. Copy ${args.ea_name}.mq4 to MT4/MQL4/Experts/ folder\n2. Open MetaEditor (F4 in MT4)\n3. Open the EA file\n4. Compile with F7 or Compile button\n5. Check Errors/Warnings tab for issues\n6. If successful, .ex4 file will be created\n\nAPI Error: ${apiError}\n\nNOTE: HTTP bridge missing /api/ea/compile endpoint`;
+        fs.writeFileSync(logPath, manualLog, 'utf8');
+        
+        return {
+          content: [
+            {
+              type: "text",
+              text: `⚠️ Remote compilation not available - Manual compilation required\n\n📁 EA ready for manual compilation:\n- File: ${activePath}\n- Size: ${fileStats.size} bytes\n- Modified: ${fileStats.mtime.toLocaleString()}\n\n🔧 Manual steps:\n1. Copy EA to MT4/MQL4/Experts/ folder\n2. Open MetaEditor (F4)\n3. Compile with F7\n4. Check for errors in Errors tab\n\n📋 Status log: ${logPath}\n\n🚀 For automatic compilation:\n- Implement /api/ea/compile endpoint in HTTP bridge\n- Then remote compilation will work seamlessly`,
+            },
+          ],
+        };
+      }
     } catch (error) {
       return {
         content: [
           {
             type: "text",
-            text: `EA Compilation Failed: ${error instanceof Error ? error.message : String(error)}`,
+            text: `❌ EA Compilation Process Failed: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };
@@ -721,37 +815,52 @@ class MT4MCPServer {
   private async listLocalEAs(args: { folder?: string }) {
     try {
       const folder = args.folder || "active";
-      const eaDir = path.join(process.cwd(), "ea-strategies", folder);
       
-      if (!fs.existsSync(eaDir)) {
+      // Check multiple possible locations
+      const possibleDirs = [
+        path.join(process.cwd(), "ea-strategies", folder),
+        path.join(process.cwd(), "strategies"),
+        path.join(process.cwd(), "mcp"),
+        path.join(process.cwd(), "MT4_Files")
+      ];
+      
+      let foundFiles: any[] = [];
+      
+      for (const eaDir of possibleDirs) {
+        if (fs.existsSync(eaDir)) {
+          const files = fs.readdirSync(eaDir)
+            .filter(file => file.endsWith('.mq4'))
+            .map(file => {
+              const filePath = path.join(eaDir, file);
+              const stats = fs.statSync(filePath);
+              return {
+                name: file,
+                size: stats.size,
+                modified: stats.mtime.toISOString(),
+                path: filePath,
+                folder: path.basename(eaDir)
+              };
+            });
+          foundFiles = foundFiles.concat(files);
+        }
+      }
+      
+      if (foundFiles.length === 0) {
         return {
           content: [
             {
               type: "text",
-              text: `Folder ${folder} does not exist in ea-strategies/`,
+              text: `No .mq4 files found in any EA folders. Searched:\n${possibleDirs.join('\n')}`,
             },
           ],
         };
       }
       
-      const files = fs.readdirSync(eaDir)
-        .filter(file => file.endsWith('.mq4'))
-        .map(file => {
-          const filePath = path.join(eaDir, file);
-          const stats = fs.statSync(filePath);
-          return {
-            name: file,
-            size: stats.size,
-            modified: stats.mtime.toISOString(),
-            path: filePath
-          };
-        });
-      
       return {
         content: [
           {
             type: "text",
-            text: `EAs in ${folder} folder:\n${JSON.stringify(files, null, 2)}`,
+            text: `Found ${foundFiles.length} EA files:\n${JSON.stringify(foundFiles, null, 2)}`,
           },
         ],
       };
@@ -761,6 +870,42 @@ class MT4MCPServer {
           {
             type: "text",
             text: `Error listing EAs: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  }
+
+  private async syncEAFromFile(args: { file_path: string; ea_name?: string }) {
+    try {
+      // Check if file exists
+      if (!fs.existsSync(args.file_path)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `❌ File not found: ${args.file_path}`,
+            },
+          ],
+        };
+      }
+      
+      // Read the EA content
+      const eaContent = fs.readFileSync(args.file_path, 'utf8');
+      
+      // Extract EA name from file path if not provided
+      const fileName = path.basename(args.file_path, '.mq4');
+      const eaName = args.ea_name || fileName;
+      
+      // Call the existing syncEA function
+      return await this.syncEA({ ea_name: eaName, ea_content: eaContent });
+      
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `❌ Error reading EA file: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };

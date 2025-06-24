@@ -616,4 +616,4 @@ void CleanUpVisuals()
         }
     }
     ChartRedraw();
-} 
+}

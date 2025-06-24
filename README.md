@@ -48,16 +48,23 @@ npm start
 
 ### 3. Install MT4 Expert Advisor (Windows Machine)
 
-**Option A: Unified EA (Recommended)**
-1. Copy `MT4_Files/MCPBridge_Unified.mq4` to your MT4 `MQL4/Experts/` folder
+**Option A: Ultimate MCP EA (Recommended)**
+1. Copy `mcp/MCP_Ultimate.mq4` to your MT4 `MQL4/Experts/` folder
 2. Compile the Expert Advisor in MetaEditor
 3. Attach the Expert Advisor to any chart in MT4
 4. Configure EA inputs:
    - `EnableFileReporting`: true (for enhanced reporting)
    - `EnableBacktestTracking`: true (for backtest monitoring)
+   - `EnableVisualMode`: true (for on-chart status indicators)
+   - Configure market data tracking options as needed
 5. Ensure "Allow DLL imports" is enabled in MT4 settings
 
-**Option B: Legacy EA**
+**Option B: Unified EA (Legacy)**
+1. Copy `MT4_Files/MCPBridge_Unified.mq4` to your MT4 `MQL4/Experts/` folder
+2. Follow same compilation and attachment process
+3. Enhanced functionality but not as comprehensive as Ultimate version
+
+**Option C: Basic EA (Legacy)**
 1. Copy `MT4_Files/MCPBridge.mq4` to your MT4 `MQL4/Experts/` folder
 2. Follow same compilation and attachment process
 3. Limited to basic MCP functionality without enhanced reporting
@@ -171,14 +178,18 @@ cd ea-strategies
 ```
 ├── src/
 │   └── index.ts                    # MCP server implementation
-├── ea-strategies/                  # EA development workspace
+├── mcp/                            # MCP infrastructure files
+│   └── MCP_Ultimate.mq4           # Ultimate unified MCP Bridge with all features
+├── strategies/                     # User trading strategies (git ignored)
+│   └── [User strategy EAs]        # Custom trading strategies for personal use
+├── ea-strategies/                  # EA development workspace (git ignored)
 │   ├── templates/                  # EA templates and examples
 │   ├── active/                     # EAs under development
 │   ├── compiled/                   # Successfully compiled EAs
 │   ├── logs/                       # Compilation logs and error reports
 │   ├── develop.sh                  # Development helper script
 │   └── README.md                   # EA development guide
-├── MT4_Files/
+├── MT4_Files/                      # Legacy MCP files
 │   ├── MCPBridge_Unified.mq4      # Unified MCP Bridge with enhanced reporting
 │   └── MCPBridge.mq4              # Legacy MCP Bridge (basic functionality)
 ├── dist/                          # Compiled JavaScript
@@ -253,19 +264,34 @@ To enable file-based reporting in your Expert Advisors:
 
 The MCP server will automatically detect and use these files when API endpoints fail.
 
-## Unified EA Setup
+## MCP Ultimate EA Features
 
-**MCPBridge_Unified.mq4** combines both MCP communication and enhanced reporting:
+**MCP_Ultimate.mq4** is the most comprehensive MCP solution combining all functionality:
 
 ### Key Features
-- **All MCP Bridge Functions**: Account info, market data, order management
-- **Enhanced Backtest Reporting**: Real-time status and comprehensive results
-- **Configurable Options**: Enable/disable reporting features as needed
-- **Live Trading Support**: Works for both backtesting and live trading
+- **Complete MCP Bridge Functions**: Account info, market data, order management
+- **Enhanced Backtest Reporting**: Real-time status and comprehensive results with JSON format
+- **Visual Indicators**: On-chart status display showing MCP connection and performance
+- **Advanced Market Data Tracking**: Configurable tracking for major/minor/exotic pairs and commodities
+- **Comprehensive Logging**: Detailed operation logs with automatic rotation
+- **Live Trading Support**: Works seamlessly for both backtesting and live trading
+- **File-Based Fallback**: Automatic fallback to file-based reporting when API endpoints fail
+- **Debug and Performance Monitoring**: Real-time operation counters and performance metrics
+
+### Configuration Options
+- **MCP Bridge Settings**: Update intervals, reporting toggles, visual mode
+- **Reporting Configuration**: JSON format, detailed logs, maximum log files
+- **Market Data Settings**: Selectable tracking for different currency pair types
 
 ### Quick Setup
-1. Use `MCPBridge_Unified.mq4` instead of separate EAs
-2. Enable both `EnableFileReporting` and `EnableBacktestTracking` in EA inputs
-3. Full MCP functionality with automatic file-based fallback
+1. Use `mcp/MCP_Ultimate.mq4` for complete functionality
+2. Configure all options in EA inputs based on your needs
+3. Full MCP functionality with enhanced visual feedback and monitoring
 
-See `MCPBridge_Unified_Guide.md` for detailed setup instructions.
+### Organization Benefits
+- **MCP Infrastructure**: All MCP-related files in `mcp/` folder
+- **Strategy Separation**: User strategies in `strategies/` folder (git ignored)
+- **Development Workspace**: EA development tools in `ea-strategies/` (git ignored)
+- **Legacy Support**: Previous versions maintained in `MT4_Files/` for compatibility
+
+See `MCPBridge_Unified_Guide.md` for detailed setup instructions on legacy versions.

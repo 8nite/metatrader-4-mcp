@@ -43,3 +43,7 @@ pids
 
 # Claude Code artifacts
 .claude/
+
+# Strategy EAs (user-specific trading strategies)
+strategies/
+ea-strategies/
